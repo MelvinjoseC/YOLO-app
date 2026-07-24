@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: yolo-app
+  labels:
+    environment: production
+    app: yolo-api

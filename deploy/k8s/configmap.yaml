@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: yolo-api-config
+  namespace: yolo-app
+data:
+  PORT: "8080"
+  DB_HOST: "yolo-db-endpoint.yolo-app.local"  # Will point to AWS RDS or local service
+  DB_PORT: "5432"
+  DB_NAME: "yolo"
