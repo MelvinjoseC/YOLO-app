@@ -12,6 +12,28 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+// Telemetry instrumentation metrics
+var (
+	httpRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "yolo_api_http_requests_total",
+			Help: "Total number of HTTP requests processed, labeled by status code, HTTP method, and request path.",
+		},
+		[]string{"code", "method", "path"},
+	)
+	httpRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "yolo_api_http_request_duration_seconds",
+			Help:    "Histogram of request processing latencies, in seconds.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "path"},
+	)
 )
 
 type Task struct {
@@ -25,6 +47,43 @@ type Task struct {
 
 type App struct {
 	DB *sql.DB
+}
+
+// loggingResponseWriter captures the status code written to the response writer
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func newLoggingResponseWriter(w http.ResponseWriter) *loggingResponseWriter {
+	return &loggingResponseWriter{w, http.StatusOK}
+}
+
+func (lrw *loggingResponseWriter) WriteHeader(code int) {
+	lrw.statusCode = code
+	lrw.ResponseWriter.WriteHeader(code)
+}
+
+// telemetryMiddleware intercepts requests to gather Prometheus metrics
+func telemetryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		
+		// Normalize paths to prevent high-cardinality label values (e.g. mapping /api/tasks/123 to /api/tasks/:id)
+		path := r.URL.Path
+		if strings.HasPrefix(path, "/api/tasks/") && len(strings.Split(path, "/")) >= 4 {
+			path = "/api/tasks/:id"
+		}
+
+		lrw := newLoggingResponseWriter(w)
+		next.ServeHTTP(lrw, r)
+		
+		duration := time.Since(start).Seconds()
+		statusCodeStr := strconv.Itoa(lrw.statusCode)
+
+		httpRequestsTotal.WithLabelValues(statusCodeStr, r.Method, path).Inc()
+		httpRequestDuration.WithLabelValues(r.Method, path).Observe(duration)
+	})
 }
 
 func main() {
@@ -64,9 +123,13 @@ func main() {
 	app.DB = db
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", app.handleHealth)
-	mux.HandleFunc("/api/tasks", app.handleTasks)
-	mux.HandleFunc("/api/tasks/", app.handleTasksWithID)
+	
+	// Expose standard Prometheus scrape endpoint
+	mux.Handle("/metrics", promhttp.Handler())
+	
+	mux.Handle("/health", telemetryMiddleware(http.HandlerFunc(app.handleHealth)))
+	mux.Handle("/api/tasks", telemetryMiddleware(http.HandlerFunc(app.handleTasks)))
+	mux.Handle("/api/tasks/", telemetryMiddleware(http.HandlerFunc(app.handleTasksWithID)))
 
 	log.Printf("Server starting on port %s", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
