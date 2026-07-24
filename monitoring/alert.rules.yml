@@ -1,0 +1,20 @@
+groups:
+  - name: yolo-api-alerts
+    rules:
+      - alert: HighHttpErrorRate
+        expr: sum(rate(yolo_api_http_requests_total{code=~"5.."}[5m])) / sum(rate(yolo_api_http_requests_total[5m])) * 100 > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx error rate detected on {{ $labels.instance }}"
+          description: "HTTP 5xx error rate is above 5% (current value: {{ $value }}%)"
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, sum(rate(yolo_api_http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High P95 latency on {{ $labels.instance }}"
+          description: "P95 request response time is above 500ms (current value: {{ $value }}s)"
