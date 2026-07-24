@@ -1,0 +1,44 @@
+name: YOLO Cloud-Native CI Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  lint-and-test:
+    name: Lint & Test Application
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+          cache-dependency-path: app/backend/go.sum
+
+      - name: Install Linting Tools
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.52.2
+
+      - name: Run Golang CI Lint
+        run: |
+          cd app/backend
+          golangci-lint run --timeout=5m
+
+      - name: Run Unit Tests
+        run: |
+          cd app/backend
+          go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.12.0'
+
+      - name: Lint Helm Chart
+        run: |
+          helm lint deploy/helm/yolo-app
