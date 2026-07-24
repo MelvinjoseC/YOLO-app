@@ -1,0 +1,60 @@
+# Default values for yolo-app.
+# This is a YAML-formatted file.
+
+replicaCount: 3
+
+image:
+  repository: melvinjosec/yolo-api
+  pullPolicy: IfNotPresent
+  tag: "1.0.0"
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: api.yolo-app.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+database:
+  host: "yolo-db-endpoint.yolo-app.local"
+  port: 5432
+  name: "yolo"
+  username: "postgres"
+  password: "YoloSecurePassword123!"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 2000
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  capabilities:
+    drop:
+      - ALL
