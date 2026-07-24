@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: yolo-api-netpolicy
+  namespace: yolo-app
+spec:
+  podSelector:
+    matchLabels:
+      app: yolo-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow incoming traffic only from Ingress controller namespace/pods
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: controller
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow outgoing traffic to Kubernetes DNS (CoreDNS)
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow outgoing traffic to database subnet/IP range (assuming RDS / Private subnet)
+    - to:
+        - ipBlock:
+            cidr: 10.0.10.0/23  # Covers the EKS private/RDS subnets
+      ports:
+        - protocol: TCP
+          port: 5432
