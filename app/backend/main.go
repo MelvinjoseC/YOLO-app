@@ -1,0 +1,192 @@
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	_ "github.com/lib/pq"
+)
+
+type Task struct {
+	ID          int       `json:"id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type App struct {
+	DB *sql.DB
+}
+
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	dbDSN := os.Getenv("DB_DSN")
+	if dbDSN == "" {
+		dbDSN = "postgres://postgres:postgres@localhost:5432/yolo?sslmode=disable"
+	}
+
+	app := &App{}
+
+	// DevOps Best Practice: Implement retry logic for database connection to handle startup latency
+	var db *sql.DB
+	var err error
+	for i := 1; i <= 5; i++ {
+		log.Printf("Connecting to database (attempt %d/5)...", i)
+		db, err = sql.Open("postgres", dbDSN)
+		if err == nil {
+			err = db.Ping()
+			if err == nil {
+				log.Println("Successfully connected to database")
+				break
+			}
+		}
+		log.Printf("Failed to connect to database: %v. Retrying in 5 seconds...", err)
+		time.Sleep(5 * time.Second)
+	}
+
+	if err != nil {
+		log.Fatalf("Could not connect to database after 5 attempts: %v", err)
+	}
+	defer db.Close()
+	app.DB = db
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", app.handleHealth)
+	mux.HandleFunc("/api/tasks", app.handleTasks)
+	mux.HandleFunc("/api/tasks/", app.handleTasksWithID)
+
+	log.Printf("Server starting on port %s", port)
+	if err := http.ListenAndServe(":"+port, mux); err != nil {
+		log.Fatalf("Server failed to start: %v", err)
+	}
+}
+
+func (app *App) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	err := app.DB.Ping()
+	if err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":      "unhealthy",
+			"database":    "disconnected",
+			"error_details": err.Error(),
+		})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":   "healthy",
+		"database": "connected",
+		"uptime":   "ok",
+	})
+}
+
+func (app *App) handleTasks(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		rows, err := app.DB.Query("SELECT id, title, description, status, created_at, updated_at FROM tasks ORDER BY id DESC")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		tasks := []Task{}
+		for rows.Next() {
+			var t Task
+			if err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Status, &t.CreatedAt, &t.UpdatedAt); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			tasks = append(tasks, t)
+		}
+
+		json.NewEncoder(w).Encode(tasks)
+
+	case http.MethodPost:
+		var t Task
+		if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
+			http.Error(w, "Invalid input payload", http.StatusBadRequest)
+			return
+		}
+		if t.Title == "" {
+			http.Error(w, "Title is required", http.StatusBadRequest)
+			return
+		}
+		if t.Status == "" {
+			t.Status = "TODO"
+		}
+
+		query := "INSERT INTO tasks (title, description, status) VALUES ($1, $2, $3) RETURNING id, created_at, updated_at"
+		err := app.DB.QueryRow(query, t.Title, t.Description, t.Status).Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(t)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (app *App) handleTasksWithID(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 4 {
+		http.Error(w, "Invalid task ID path", http.StatusBadRequest)
+		return
+	}
+	idStr := parts[3]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid ID format", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodDelete:
+		result, err := app.DB.Exec("DELETE FROM tasks WHERE id = $1", id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if rowsAffected == 0 {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"message": fmt.Sprintf("Task %d deleted successfully", id)})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
