@@ -22,3 +22,8 @@ output "cluster_endpoint" {
   value       = module.eks.cluster_endpoint
   description = "EKS API server endpoint"
 }
+
+output "db_endpoint" {
+  value       = module.rds.db_endpoint
+  description = "RDS Postgres database connection endpoint"
+}
