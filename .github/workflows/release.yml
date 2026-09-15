@@ -1,4 +1,4 @@
-﻿name: Release & Container Publishing
+name: Release & Container Publishing
 
 on:
   push:
@@ -49,7 +49,7 @@ jobs:
             REVISION=${{ github.sha }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: Release ${{ github.ref_name }}
           draft: false
