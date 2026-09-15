@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # ==========================================
 # Run Stage
 # ==========================================
-FROM alpine:3.18.2
+FROM alpine:3.24.1
 
 ARG VERSION=1.0.0
 ARG REVISION=unknown
