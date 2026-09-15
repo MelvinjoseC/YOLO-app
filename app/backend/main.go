@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -131,9 +134,39 @@ func main() {
 	mux.Handle("/api/tasks", telemetryMiddleware(http.HandlerFunc(app.handleTasks)))
 	mux.Handle("/api/tasks/", telemetryMiddleware(http.HandlerFunc(app.handleTasksWithID)))
 
-	log.Printf("Server starting on port %s", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		log.Fatalf("Server failed to start: %v", err)
+	srv := &http.Server{
+		Addr:         ":" + port,
+		Handler:      mux,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	serverErrors := make(chan error, 1)
+	go func() {
+		log.Printf("Server listening on port %s", port)
+		serverErrors <- srv.ListenAndServe()
+	}()
+
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-serverErrors:
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+
+	case sig := <-shutdown:
+		log.Printf("Shutdown signal %v received: initiating graceful termination...", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("Graceful shutdown failed: %v. Forcing shutdown...", err)
+			_ = srv.Close()
+		}
+		log.Println("Server successfully shutdown")
 	}
 }
 
