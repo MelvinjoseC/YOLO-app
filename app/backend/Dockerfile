@@ -1,7 +1,7 @@
 # ==========================================
 # Build Stage
 # ==========================================
-FROM golang:1.20-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 ARG VERSION=1.0.0
 ARG REVISION=unknown
