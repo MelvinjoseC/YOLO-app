@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -67,7 +69,33 @@ func (lrw *loggingResponseWriter) WriteHeader(code int) {
 	lrw.ResponseWriter.WriteHeader(code)
 }
 
-// telemetryMiddleware intercepts requests to gather Prometheus metrics
+type contextKey string
+
+const requestIDKey contextKey = "request_id"
+
+// generateRequestID produces a 24-character hexadecimal unique identifier
+func generateRequestID() string {
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
+}
+
+// correlationMiddleware assigns a unique X-Request-ID if missing and injects it into context
+func correlationMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqID := r.Header.Get("X-Request-ID")
+		if reqID == "" {
+			reqID = generateRequestID()
+		}
+		w.Header().Set("X-Request-ID", reqID)
+		ctx := context.WithValue(r.Context(), requestIDKey, reqID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// telemetryMiddleware intercepts requests to gather Prometheus metrics and emit structured logs
 func telemetryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -86,6 +114,27 @@ func telemetryMiddleware(next http.Handler) http.Handler {
 
 		httpRequestsTotal.WithLabelValues(statusCodeStr, r.Method, path).Inc()
 		httpRequestDuration.WithLabelValues(r.Method, path).Observe(duration)
+
+		// Structured JSON logging for cloud-native observability
+		reqID, _ := r.Context().Value(requestIDKey).(string)
+		logLevel := "INFO"
+		if lrw.statusCode >= 500 {
+			logLevel = "ERROR"
+		} else if lrw.statusCode >= 400 {
+			logLevel = "WARN"
+		}
+
+		logPayload, _ := json.Marshal(map[string]interface{}{
+			"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
+			"level":       logLevel,
+			"request_id":  reqID,
+			"method":      r.Method,
+			"path":        r.URL.Path,
+			"status":      lrw.statusCode,
+			"duration_ms": float64(time.Since(start).Microseconds()) / 1000.0,
+			"remote_addr": r.RemoteAddr,
+		})
+		log.Println(string(logPayload))
 	})
 }
 
@@ -146,7 +195,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      correlationMiddleware(mux),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
