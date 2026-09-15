@@ -122,6 +122,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("Could not connect to database after 5 attempts: %v", err)
 	}
+	// DevOps SRE Best Practice: Tune database connection pool parameters
+	// to avoid socket exhaustion under high load and recycle stale idle connections
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(1 * time.Minute)
+
 	defer db.Close()
 	app.DB = db
 
@@ -251,9 +258,12 @@ func (app *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (app *App) handleTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
 	switch r.Method {
 	case http.MethodGet:
-		rows, err := app.DB.Query("SELECT id, title, description, status, created_at, updated_at FROM tasks ORDER BY id DESC")
+		rows, err := app.DB.QueryContext(ctx, "SELECT id, title, description, status, created_at, updated_at FROM tasks ORDER BY id DESC")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -287,7 +297,7 @@ func (app *App) handleTasks(w http.ResponseWriter, r *http.Request) {
 		}
 
 		query := "INSERT INTO tasks (title, description, status) VALUES ($1, $2, $3) RETURNING id, created_at, updated_at"
-		err := app.DB.QueryRow(query, t.Title, t.Description, t.Status).Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt)
+		err := app.DB.QueryRowContext(ctx, query, t.Title, t.Description, t.Status).Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -316,9 +326,12 @@ func (app *App) handleTasksWithID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
 	switch r.Method {
 	case http.MethodDelete:
-		result, err := app.DB.Exec("DELETE FROM tasks WHERE id = $1", id)
+		result, err := app.DB.ExecContext(ctx, "DELETE FROM tasks WHERE id = $1", id)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
