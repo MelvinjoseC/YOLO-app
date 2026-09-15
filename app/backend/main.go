@@ -131,6 +131,9 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 	
 	mux.Handle("/health", telemetryMiddleware(http.HandlerFunc(app.handleHealth)))
+	mux.Handle("/livez", http.HandlerFunc(app.handleLivez))
+	mux.Handle("/healthz", http.HandlerFunc(app.handleLivez))
+	mux.Handle("/readyz", telemetryMiddleware(http.HandlerFunc(app.handleReadyz)))
 	mux.Handle("/api/tasks", telemetryMiddleware(http.HandlerFunc(app.handleTasks)))
 	mux.Handle("/api/tasks/", telemetryMiddleware(http.HandlerFunc(app.handleTasksWithID)))
 
@@ -168,6 +171,59 @@ func main() {
 		}
 		log.Println("Server successfully shutdown")
 	}
+}
+
+func (app *App) handleLivez(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    "alive",
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"uptime":    "ok",
+	})
+}
+
+func (app *App) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	var dbStatus string
+	var errDetails string
+	statusCode := http.StatusOK
+
+	if app.DB == nil {
+		statusCode = http.StatusServiceUnavailable
+		dbStatus = "uninitialized"
+	} else if err := app.DB.PingContext(ctx); err != nil {
+		statusCode = http.StatusServiceUnavailable
+		dbStatus = "disconnected"
+		errDetails = err.Error()
+	} else {
+		dbStatus = "connected"
+	}
+
+	w.WriteHeader(statusCode)
+	resp := map[string]interface{}{
+		"status":    "ready",
+		"database":  dbStatus,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+	if statusCode != http.StatusOK {
+		resp["status"] = "not_ready"
+		if errDetails != "" {
+			resp["error"] = errDetails
+		}
+	} else if app.DB != nil {
+		stats := app.DB.Stats()
+		resp["db_pool"] = map[string]int{
+			"open_connections": stats.OpenConnections,
+			"in_use":           stats.InUse,
+			"idle":             stats.Idle,
+		}
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (app *App) handleHealth(w http.ResponseWriter, r *http.Request) {
