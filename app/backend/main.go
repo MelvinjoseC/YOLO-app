@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -21,6 +23,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+//go:embed frontend/*
+var embeddedFrontend embed.FS
 
 // Telemetry instrumentation metrics
 var (
@@ -192,6 +197,12 @@ func main() {
 	mux.Handle("/readyz", telemetryMiddleware(http.HandlerFunc(app.handleReadyz)))
 	mux.Handle("/api/tasks", telemetryMiddleware(http.HandlerFunc(app.handleTasks)))
 	mux.Handle("/api/tasks/", telemetryMiddleware(http.HandlerFunc(app.handleTasksWithID)))
+
+	// Serve embedded web dashboard frontend at root
+	frontendFS, err := fs.Sub(embeddedFrontend, "frontend")
+	if err == nil {
+		mux.Handle("/", http.FileServer(http.FS(frontendFS)))
+	}
 
 	srv := &http.Server{
 		Addr:         ":" + port,
