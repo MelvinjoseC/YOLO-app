@@ -58,3 +58,13 @@ containerSecurityContext:
   capabilities:
     drop:
       - ALL
+
+serviceAccount:
+  create: true
+  name: ""
+  automountServiceAccountToken: false
+  annotations: {}
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2

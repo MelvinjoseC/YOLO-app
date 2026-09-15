@@ -49,3 +49,14 @@ Selector labels
 app.kubernetes.io/name: {{ include "yolo-app.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Create the name of the service account to use
+*/}}
+{{- define "yolo-app.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create }}
+{{- default (include "yolo-app.fullname" .) .Values.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.serviceAccount.name }}
+{{- end }}
+{{- end }}

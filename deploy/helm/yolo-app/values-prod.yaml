@@ -1,0 +1,28 @@
+﻿# Production environment configuration overrides
+replicaCount: 3
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+ingress:
+  hosts:
+    - host: yolo.production.company.internal
+      paths:
+        - path: /
+          pathType: Prefix

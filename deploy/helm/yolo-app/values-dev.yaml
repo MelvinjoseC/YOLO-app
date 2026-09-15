@@ -1,0 +1,23 @@
+﻿# Dev environment configuration overrides
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+podDisruptionBudget:
+  enabled: false
+
+ingress:
+  hosts:
+    - host: dev.yolo-app.local
+      paths:
+        - path: /
+          pathType: Prefix
