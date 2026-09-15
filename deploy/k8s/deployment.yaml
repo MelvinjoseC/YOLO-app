@@ -15,6 +15,7 @@ spec:
       labels:
         app: yolo-api
     spec:
+      serviceAccountName: yolo-api-sa
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
