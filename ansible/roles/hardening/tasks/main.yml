@@ -52,6 +52,36 @@
     port: '443'
     proto: tcp
 
+- name: Allow Prometheus Node Exporter metrics from monitoring subnet
+  ufw:
+    rule: allow
+    port: '9100'
+    proto: tcp
+
 - name: Enable UFW firewall
   ufw:
     state: enabled
+
+- name: Configure unattended-upgrades for automatic security updates
+  apt:
+    name: unattended-upgrades
+    state: present
+
+- name: Enable automatic security updates
+  copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    mode: '0644'
+
+- name: Kernel parameter hardening via sysctl
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+  loop:
+    - { key: 'net.ipv4.tcp_syncookies', value: '1' }
+    - { key: 'net.ipv4.conf.all.rp_filter', value: '1' }
+    - { key: 'net.ipv4.conf.default.accept_source_route', value: '0' }

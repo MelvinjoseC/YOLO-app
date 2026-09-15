@@ -6,3 +6,4 @@
   roles:
     - hardening
     - docker
+    - monitoring_agent
