@@ -31,3 +31,15 @@ variable "db_password" {
   sensitive   = true
   default     = "YoloSecurePassword123!"
 }
+
+variable "allowed_security_group_ids" {
+  type        = list(string)
+  description = "List of security group IDs authorized to connect to RDS (e.g. EKS node SG)"
+  default     = []
+}
+
+variable "kms_key_arn" {
+  type        = string
+  description = "Optional KMS customer managed key ARN for storage encryption"
+  default     = ""
+}
